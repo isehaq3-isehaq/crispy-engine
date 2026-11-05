@@ -38,6 +38,8 @@ if (!function_exists('inv_movement_types')) {
             'waste'        => ['label' => 'هالك / تالف',        'prefix' => 'WS', 'color' => '#B82929', 'bg' => '#FEE2E2'],
             'count_adjust' => ['label' => 'تسوية جرد',          'prefix' => 'ST', 'color' => '#D97706', 'bg' => '#FEF3C7'],
             'manual_edit'  => ['label' => 'تعديل يدوي',         'prefix' => 'ED', 'color' => '#4B5563', 'bg' => '#E5E7EB'],
+            'purchase'     => ['label' => 'توريد مشتريات',     'prefix' => 'PU', 'color' => '#0F754C', 'bg' => '#D1FAE5'],
+            'production'   => ['label' => 'إنتاج وتحضير',      'prefix' => 'PR', 'color' => '#0E7490', 'bg' => '#CFFAFE'],
         ];
     }
 }
@@ -99,6 +101,31 @@ if (!function_exists('inv_next_voucher_no')) {
         $stmt->execute([$branch_id, $movement_type]);
         $seq = intval($stmt->fetchColumn()) + 1;
         return $prefix . '-' . date('ymd') . '-' . str_pad((string)$seq, 4, '0', STR_PAD_LEFT);
+    }
+}
+
+if (!function_exists('inv_receive_stock')) {
+    /**
+     * إدخال كمية لمخزن في الفرع مع تحديث تكلفة الوحدة بالمتوسط المرجّح.
+     * يبحث عن الصنف بالاسم داخل نفس الفرع والمخزن، وينشئه إن لم يوجد. يُستدعى داخل Transaction.
+     * يعيد: ['id' => .., 'balance' => ..]
+     */
+    function inv_receive_stock($pdo, $branch_id, $item_name, $store, $qty, $unit, $unit_cost, $main_category = 'food', $sub_category = '') {
+        $stmt = $pdo->prepare("SELECT id, quantity, avg_unit_cost FROM inventory WHERE branch_id = ? AND item_name = ? AND inventory_type = ? LIMIT 1 FOR UPDATE");
+        $stmt->execute([$branch_id, $item_name, $store]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $old_q = max(0, floatval($row['quantity']));
+            $old_c = floatval($row['avg_unit_cost']);
+            $new_q = floatval($row['quantity']) + $qty;
+            $base = $old_q + $qty;
+            $new_c = ($unit_cost > 0 && $base > 0) ? (($old_q * $old_c) + ($qty * $unit_cost)) / $base : $old_c;
+            $pdo->prepare("UPDATE inventory SET quantity = ?, avg_unit_cost = ? WHERE id = ? AND branch_id = ?")->execute([$new_q, $new_c, $row['id'], $branch_id]);
+            return ['id' => intval($row['id']), 'balance' => $new_q];
+        }
+        $pdo->prepare("INSERT INTO inventory (branch_id, item_name, inventory_type, main_category, sub_category, quantity, unit, min_limit, avg_unit_cost) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)")
+            ->execute([$branch_id, $item_name, $store, $main_category, $sub_category, $qty, $unit, max(0, $unit_cost)]);
+        return ['id' => intval($pdo->lastInsertId()), 'balance' => $qty];
     }
 }
 

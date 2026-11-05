@@ -341,8 +341,8 @@ if (isset($pdo)) {
                 $t = $mv['movement_type'];
                 if (!isset($log_totals[$t])) $log_totals[$t] = ['count' => [], 'value' => 0];
                 $log_totals[$t]['count'][$mv['voucher_no']] = true;
-                // قيمة التحويل تحسب مرة واحدة (سطر الخروج فقط)
-                if ($t !== 'transfer' || floatval($mv['qty']) < 0) {
+                // قيمة التحويل تُحسب مرة واحدة (سطر الخروج)، والإنتاج بقيمة الناتج (سطر الدخول)
+                if (($t !== 'transfer' || floatval($mv['qty']) < 0) && ($t !== 'production' || floatval($mv['qty']) > 0)) {
                     $log_totals[$t]['value'] += ($t === 'count_adjust' || $t === 'manual_edit') ? floatval($mv['qty']) * floatval($mv['unit_cost']) : floatval($mv['total_cost']);
                 }
             }
@@ -466,7 +466,7 @@ $tabs_meta = [
         .var-pos { color: var(--success-green); } .var-neg { color: var(--primary-red); } .var-zero { color: var(--text-muted); }
 
         .kpi-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px; }
-        @media (min-width: 900px) { .kpi-row { grid-template-columns: repeat(5, 1fr); } }
+        @media (min-width: 900px) { .kpi-row { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
         .kpi { background: var(--soft); border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 12px; }
         .kpi small { font-size: 11px; color: var(--text-muted); font-weight: 700; display: block; }
         .kpi strong { font-size: 15px; display: block; margin-top: 4px; }
@@ -754,9 +754,14 @@ $tabs_meta = [
                                 foreach ($out_reasons as $rs) { if (isset($rs[$mv['reason']])) { $reason_label = $rs[$mv['reason']]; } }
                                 if ($mv['reason'] === 'surplus') $reason_label = 'زيادة جرد';
                                 if ($mv['reason'] === 'shortage') $reason_label = 'عجز جرد';
+                                if ($mv['reason'] === 'prep') $reason_label = 'تحضير يومي';
+                                if ($mv['reason'] === 'batch_input') $reason_label = 'مادة خام مستهلكة';
+                                if ($mv['reason'] === 'batch_output') $reason_label = 'ناتج التصنيع';
                             }
                             if ($mv['movement_type'] === 'transfer') {
                                 $dir = $q < 0 ? 'خروج من ' . inv_store_label($mv['from_store']) : 'دخول إلى ' . inv_store_label($mv['to_store']);
+                            } elseif ($q > 0 && !empty($mv['to_store']) && $mv['movement_type'] !== 'count_adjust' && $mv['movement_type'] !== 'manual_edit') {
+                                $dir = 'دخول إلى ' . inv_store_label($mv['to_store']);
                             } else {
                                 $dir = inv_store_label($mv['from_store']);
                             }
